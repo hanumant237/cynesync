@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "name": "cinesync-frontend",
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/next"
+    }
+  ],
+  "env": {
+    "NEXT_PUBLIC_API_URL": "https://placeholder-backend-url.railway.app",
+    "NEXT_PUBLIC_SOCKET_URL": "https://placeholder-backend-url.railway.app"
+  },
+  "functions": {
+    "src/app/**/*.{js,ts,jsx,tsx}": {
+      "maxDuration": 30
+    }
+  },
+  "regions": ["iad1"],
+  "framework": "nextjs"
+}
