@@ -1,9 +1,13 @@
 /**
- * CineSync Backend — Services
+ * CineSync Backend — Services barrel
  *
- * Business logic layer consumed by controllers. Keeps HTTP concerns out of
- * domain logic. Placeholder for future phases.
+ * Business-logic layer. Controllers depend on these; nothing here depends on
+ * Express.
  */
 
-// TODO (future phase): add services, e.g.
-//   export const mediaService = { list, getById, transcode, ... };
+export { Logger } from "./Logger.js";
+export { MediaInspector, InspectionError } from "./MediaInspector.js";
+export { FFmpegService, canPlayDirectly, FFmpegError } from "./FFmpegService.js";
+export { CleanupService } from "./CleanupService.js";
+export type { RegisteredSession } from "./CleanupService.js";
+export { VideoService, VideoServiceError } from "./VideoService.js";

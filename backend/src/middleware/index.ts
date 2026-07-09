@@ -1,15 +1,6 @@
 /**
- * CineSync Backend — Middleware
- *
- * Express middleware (auth, error handling, logging, request validation, ...).
- * Placeholder for future phases.
+ * CineSync Backend — Middleware barrel
  */
 
-import type { RequestHandler } from "express";
-
-/** Example placeholder middleware — replaces with real middleware later. */
-export const placeholderMiddleware: RequestHandler = (_req, _res, next) => {
-  next();
-};
-
-// TODO (future phase): add auth, error-handler, and logging middleware.
+export { requestLogger } from "./requestLogger.js";
+export { errorHandler, notFoundHandler } from "./errorHandler.js";

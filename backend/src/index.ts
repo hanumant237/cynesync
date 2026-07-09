@@ -1,19 +1,29 @@
 /**
- * CineSync Backend — Entry Point (placeholder)
+ * CineSync Backend — Entry Point
  *
- * Boots the Express HTTP server and the Socket.IO realtime server.
+ * Boots the Express HTTP server, mounts the streaming routes, and wires up
+ * graceful shutdown so FFmpeg processes are stopped and temp files removed
+ * when the server stops — never leaving anything behind.
  *
- * This foundation phase does NOT implement any business logic, streaming,
- * or socket functionality — it only establishes the structure so future
- * phases can fill in routes, controllers, and socket handlers.
+ * The Socket.IO realtime layer is kept from the foundation but no handlers
+ * are registered in this phase (watch-party/chat are out of scope).
  */
 
 import express from "express";
 import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { config } from "./config/index.js";
-import { rootRouter } from "./routes/index.js";
+import { Logger } from "./services/Logger.js";
+import { VideoService } from "./services/VideoService.js";
+import { createRootRouter } from "./routes/index.js";
+import { requestLogger, errorHandler, notFoundHandler } from "./middleware/index.js";
 
+const log = new Logger("Server");
+
+// --- Build the singleton services -------------------------------------------
+const videoService = new VideoService();
+
+// --- Express app ------------------------------------------------------------
 const app = express();
 const httpServer = createServer(app);
 
@@ -22,16 +32,56 @@ export const io = new SocketIOServer(httpServer, {
   cors: { origin: config.corsOrigin, methods: ["GET", "POST"] },
 });
 
-// HTTP layer.
-app.use(express.json());
-app.use("/api", rootRouter);
+app.use(requestLogger);
+app.use(express.json({ limit: "256kb" }));
 
-// Health check — useful for the gateway and future orchestration.
+// Health check — useful for the gateway and orchestration.
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "cinesync-backend" });
+  res.json({ ok: true, service: "cinesync-backend", version: "0.2.0" });
 });
 
+// Streaming API.
+app.use("/api", createRootRouter(videoService));
+
+// 404 + centralized error handler (must be last).
+app.use(notFoundHandler);
+app.use(errorHandler);
+
+// --- Start ------------------------------------------------------------------
 httpServer.listen(config.port, () => {
-  // eslint-disable-next-line no-console
-  console.log(`[CineSync] Backend listening on port ${config.port}`);
+  log.info("CineSync backend listening", {
+    port: config.port,
+    nodeEnv: config.nodeEnv,
+    hlsOutputDir: config.hlsOutputDir,
+  });
+});
+
+// --- Graceful shutdown ------------------------------------------------------
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log.info("Shutting down", { signal });
+
+  // Stop accepting new connections.
+  httpServer.close(() => log.info("HTTP server closed"));
+
+  // Stop FFmpeg processes + remove temp dirs.
+  await videoService.cleanupService.disposeAll();
+
+  // Close realtime layer.
+  io.close(() => log.info("Socket.IO closed"));
+
+  process.exit(0);
+}
+
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+// Never crash on an unhandled rejection/exception — log and continue.
+process.on("unhandledRejection", (reason) => {
+  log.error("Unhandled promise rejection", { reason });
+});
+process.on("uncaughtException", (err) => {
+  log.error("Uncaught exception", { name: err.name, message: err.message });
 });

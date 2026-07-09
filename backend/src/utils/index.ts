@@ -1,8 +1,5 @@
 /**
- * CineSync Backend — Utilities
- *
- * Shared backend helpers (formatting, id generation, path resolution, ...).
- * Placeholder for future phases.
+ * CineSync Backend — Utilities barrel
  */
 
-// TODO (future phase): add backend-specific utilities.
+export * from "./url.js";

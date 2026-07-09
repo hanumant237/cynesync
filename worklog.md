@@ -115,3 +115,42 @@ Verification:
 Stage Summary:
 - Professional media player complete and fully verified. Lint clean, TypeScript clean, no broken imports. hls.js plays the sample stream; all states (loading/playing/paused/buffering/ended/error) have polished UI; reusable components (SeekBar, VolumeSlider, PlaybackSpeedMenu, LoadingOverlay, ErrorOverlay, PlayerControls, VideoPlayer, UrlInputBar); no magic numbers; keyboard shortcuts functional.
 - Dev server running on port 3000 (HTTP 200).
+
+---
+Task ID: 4
+Agent: Z.ai Code (main)
+Task: Build the backend streaming engine (Node.js + Express + TypeScript + FFmpeg/FFprobe). POST /stream inspects media, serves direct or transcodes to HLS. No frontend changes, no watch-party/chat/Socket.IO functionality.
+
+Work Log:
+- Read PROJECT.md; analyzed existing backend placeholder structure (config, empty services/routes/middleware, ESM modules, tsconfig).
+- Verified FFmpeg 7.1.5 + FFprobe present on PATH.
+- Installed backend deps: fluent-ffmpeg, nanoid; dev deps: @types/fluent-ffmpeg, @types/morgan, eslint, @eslint/js, typescript-eslint, globals.
+- Updated config/index.ts: typed env config with intEnv() helper — port, CORS, mediaRoot, hlsOutputDir, hlsSessionTtlMs, ffmpegPath, ffprobePath, ffprobeTimeoutMs, ffmpegStartupTimeoutMs, hlsSegmentSeconds, hlsPlaylistSize, urlProbeTimeoutMs, logLevel.
+- Updated .env.example with all streaming tunables.
+- Created types/index.ts: CodecStream, MediaInfo, StreamStrategy, StreamSession, ErrorBody.
+- Built services/Logger.ts: scoped, leveled (silly/debug/info/warn/error) logger with ISO timestamps + JSON context.
+- Built utils/url.ts: validateUrl (shape + http/https), probeUrl (fetch range GET with timeout → reachable/contentType/looksLikeVideo), extFromPathname, isLikelyMediaExtension.
+- Built services/MediaInspector.ts: FFprobe wrapper via execFile → normalized MediaInfo (container label, codecs, resolution label, duration, bitrate, size); InspectionError classification (FFPROBE_MISSING, INSPECTION_TIMEOUT, UNSUPPORTED_FORMAT).
+- Built services/FFmpegService.ts: canPlayDirectly() (MP4/WebM/HLS direct-play matrix), launchHls() spawns FFmpeg → H.264/AAC HLS with sliding-window segments; settle-guarded ready promise resolves on playlist existence (handles short-source exit-code-0 race); FFmpegError classification (FFMPEG_FAILED, FFMPEG_TIMEOUT).
+- Built services/CleanupService.ts: session registry + idle reaper (60s interval, unref'd) + disposeAll() for shutdown; removes temp dirs recursively ("never leave files behind").
+- Built services/VideoService.ts: orchestrates inspect → canPlayDirectly → direct (return source URL) or hls (launch FFmpeg, register cleanup, await ready, return playlist URL); session registry for playlist/segment path resolution; VideoServiceError with HTTP status.
+- Built middleware/requestLogger.ts (nanoid request id, response time) + middleware/errorHandler.ts (structured ErrorBody, VideoServiceError → status, generic 500 fallback, never crash) + notFoundHandler.
+- Built controllers/streamController.ts: POST /stream (validate → probe → prepare), GET /stream/:id/playlist.m3u8 (sendFile with vnd.apple.mpegurl), GET /stream/:id/segments/:name (sendFile video/mp2t, path-traversal safe).
+- Built routes/stream.ts + routes/index.ts (createRootRouter(videoService)).
+- Rewrote index.ts: wires services + middleware + routes; graceful shutdown (SIGINT/SIGTERM → disposeAll → close HTTP/IO); unhandledRejection/uncaughtException logged, never crash.
+- Added backend eslint.config.mjs (typescript-eslint, node globals).
+
+Key fix during verification:
+- FFmpegService initial onExit handler rejected on ANY exit before ready. For short videos (6-8s test MKV), FFmpeg exits code 0 after writing the playlist but before the 400ms poll caught it → false FFMPEG_FAILED. Fixed: on clean exit (code 0), check if playlist exists and resolve ready; settle-guarded promise so poll+exit can't double-settle.
+
+Verification (12-point suite, all passed):
+- `bunx tsc --noEmit` → exit 0. `bunx eslint .` → exit 0.
+- POST /stream cases: invalid URL → 400 INVALID_URL; missing url → 400; unreachable → 502 UNREACHABLE_URL; non-video (text/html) → 415 UNSUPPORTED_FORMAT.
+- Direct play: MP4/H.264 → strategy=direct (container MP4, h264, 360p, 10s, 792kbps); HLS .m3u8 → strategy=direct (container HLS, h264/aac, 720p, 635s).
+- Transcode: MKV VP9/Opus → strategy=hls; playlist.m3u8 served (application/vnd.apple.mpegurl, valid #EXTM3U); seg-00000.ts served (video/mp2t, 202KB, HTTP 200).
+- Session-not-found → 404 SESSION_NOT_FOUND.
+- Cleanup on SIGTERM: files before=2, files after=0, dirs after=0 ("never leave temporary files behind"); log shows Disposing all (count 1) → Session disposed → HTTP server closed.
+
+Stage Summary:
+- Backend streaming engine complete and fully verified. TypeScript clean, ESLint clean, no broken imports. POST /stream validates URL + probes reachability + inspects via FFprobe + decides direct vs transcode; serves HLS playlist + segments; structured JSON errors for every failure class; graceful cleanup on shutdown. Backend ready for frontend integration in the next phase.
+- Did NOT modify the frontend. Did NOT implement watch-party/chat/voice/Socket.IO functionality.

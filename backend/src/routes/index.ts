@@ -1,16 +1,22 @@
 /**
  * CineSync Backend — Routes
  *
- * Mounts domain routers under `/api`. In this foundation phase there are no
- * concrete routes; future phases will add media, watch-party, and settings
- * routers here.
+ * Mounts domain routers under `/api`. The streaming router is wired here and
+ * receives the shared VideoService instance.
  */
 
 import { Router } from "express";
+import { createStreamRouter } from "./stream.js";
+import type { VideoService } from "../services/VideoService.js";
 
-export const rootRouter = Router();
+/**
+ * Build the root router. Requires the VideoService so every route shares the
+ * same session registry and cleanup hooks.
+ */
+export function createRootRouter(videoService: VideoService): Router {
+  const rootRouter = Router();
 
-// TODO (future phase): mount domain routers, e.g.
-//   rootRouter.use("/media", mediaRouter);
-//   rootRouter.use("/watch-parties", watchPartyRouter);
-//   rootRouter.use("/settings", settingsRouter);
+  rootRouter.use("/stream", createStreamRouter(videoService));
+
+  return rootRouter;
+}
