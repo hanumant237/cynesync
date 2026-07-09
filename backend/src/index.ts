@@ -8,6 +8,7 @@
  */
 
 import express from "express";
+import cors from "cors";
 import { createServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { config } from "./config/index.js";
@@ -43,7 +44,8 @@ export const io = new SocketIOServer(httpServer, {
 const roomManager: RoomManager = initWatchParty(io);
 
 app.use(requestLogger);
-app.use(express.json({ limit: "256kb" }));
+app.use(cors({ origin: corsOrigin, methods: ["GET", "POST"] }));
+app.use(express.json({ limit: "1mb" }));
 
 // Health check — useful for the gateway and orchestration.
 app.get("/health", (_req, res) => {

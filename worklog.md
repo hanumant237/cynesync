@@ -313,3 +313,36 @@ Verification (all passed):
 
 Stage Summary:
 - Realtime chat complete and fully verified. Lint clean, TypeScript clean (frontend + backend), no console errors. Chat reuses the existing Socket.IO connection (no second socket). Features: realtime messaging (send/receive), username + timestamp, auto-scroll, typing indicator (animated dots), unread badge, connection status, system messages (join/leave/play/pause), collapsible panel, Enter to send / Shift+Enter newline, char counter, disable when disconnected, Framer Motion animations (fade/slide/pop). No voice, auth, or library changes.
+
+---
+Task ID: 9
+Agent: Z.ai Code (main)
+Task: Verify the streaming pipeline with two test videos: (1) MP4 public validation, (2) MKV HEVC 4K user-provided media. Fix any issues found.
+
+Work Log:
+- Analyzed existing streaming pipeline: backend (POST /stream → FFprobe → direct/hls → FFmpeg → HLS playlist + segments) and frontend (prepareStream → useStreamPreparation → VideoPlayer with hls.js gateway-aware loader).
+- Identified 3 issues during testing:
+  1. FFMPEG_TIMEOUT: 4K HEVC transcoding exceeded the 20s startup timeout. Fixed: increased FFMPEG_STARTUP_TIMEOUT_MS to 60s, added `-vf scale=-2:1080` to cap output at 1080p (4K real-time transcoding too CPU-intensive), changed preset from `veryfast` to `ultrafast`.
+  2. CORS: Express had no CORS middleware (only Socket.IO had it). Cross-origin POST from frontend (port 3000) to gateway (port 81) was blocked. Fixed: added `app.use(cors({ origin: corsOrigin, methods: ["GET", "POST"] }))` to Express.
+  3. API routing: stream service used relative `/api/stream` which resolved to port 3000 (Next.js) instead of the gateway. Fixed: changed to use `${SOCKET_BASE_URL}/api/stream` (gateway URL).
+  Also: increased express.json limit from 256kb to 1mb (MKV signed URL is very long), increased prepareStream timeout to 90s, added stderr logging on FFmpeg non-zero exit.
+
+Verification:
+- Test 1 (MP4 — Big_Buck_Bunny_720_10s_1MB.mp4):
+  - Backend: detected MP4/H.264/720p/10s → strategy=direct ✅
+  - Browser: video loaded (readyState 4, duration 10, no errors) ✅
+  - Direct URL accessible (HTTP 200) ✅
+- Test 2 (MKV HEVC 4K — Satluj.2026.2160p.ZEE5.WEB-DL):
+  - Backend: detected MKV/HEVC/EAC3/4K/9839s/3.3Mbps → strategy=hls ✅
+  - FFmpeg: transcoded 4K HEVC → 1080p H.264 HLS (ultrafast preset, ~16s startup) ✅
+  - HLS playlist: HTTP 200, valid #EXTM3U ✅
+  - HLS segment: HTTP 200, 3.7 MB ✅
+  - CORS preflight: HTTP 204 ✅
+  - POST /stream: HTTP 200 (stream prepared) ✅
+  - hls.js: fetched playlist + segments from backend (confirmed in backend log: GET /playlist.m3u8 200, GET /segments/seg-00000.ts 200) ✅
+  - No console errors ✅
+  - No backend errors ✅
+- Lint clean (frontend + backend), TypeScript clean (frontend + backend).
+
+Stage Summary:
+- Streaming pipeline fully verified and fixed. Both test videos work: MP4 plays directly (browser-native H.264), MKV HEVC 4K is automatically transcoded to HLS (H.264/AAC, 1080p) via FFmpeg and played through hls.js. Three bugs fixed: FFmpeg timeout (increased + resolution scaling), CORS (added Express middleware), API routing (gateway URL). No remaining issues.

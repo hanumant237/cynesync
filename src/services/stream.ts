@@ -11,7 +11,7 @@
  */
 
 import axios, { type AxiosError } from "axios";
-import { BACKEND_PORT } from "@/utils/constants";
+import { BACKEND_PORT, SOCKET_BASE_URL } from "@/utils/constants";
 import type {
   StreamError,
   StreamErrorBody,
@@ -37,9 +37,11 @@ const GATEWAY_PORT_PARAM = `XTransformPort=${BACKEND_PORT}`;
  * should use `mapStreamError` to classify it into a friendly UI error.
  */
 export async function prepareStream(url: string): Promise<StreamSession> {
-  const endpoint = `/api/stream?${GATEWAY_PORT_PARAM}`;
+  // Use the gateway URL (SOCKET_BASE_URL) as the base so the request routes
+  // to the backend regardless of which port the page is served from.
+  const endpoint = `${SOCKET_BASE_URL}/api/stream?${GATEWAY_PORT_PARAM}`;
   const { data } = await axios.post<StreamSession>(endpoint, { url }, {
-    timeout: 60_000,
+    timeout: 90_000,
     headers: { "Content-Type": "application/json" },
   });
   return data;

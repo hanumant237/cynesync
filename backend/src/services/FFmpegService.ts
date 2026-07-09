@@ -104,15 +104,20 @@ export class FFmpegService {
     const args = [
       "-hide_banner",
       "-loglevel",
-      "error",
+      "warning",
       "-i",
       sourceUrl,
 
-      // Video: H.264 (universal browser support), keep resolution, CRF 23.
+      // Video: H.264 (universal browser support).
+      // Scale down to 1080p max for real-time transcoding performance —
+      // 4K HEVC → 4K H.264 is too CPU-intensive for live transcoding.
+      // -2 preserves aspect ratio (height is set, width auto-calculated).
+      "-vf",
+      "scale=-2:1080",
       "-c:v",
       "libx264",
       "-preset",
-      "veryfast",
+      "ultrafast",
       "-crf",
       "23",
       "-pix_fmt",
@@ -163,6 +168,10 @@ export class FFmpegService {
 
     child.on("exit", (code, signal) => {
       log.info("FFmpeg exited", { sessionId, code, signal });
+      // Log stderr on non-zero exit for debugging.
+      if (code !== 0 && code !== null && stderrBuffer.trim()) {
+        log.warn("FFmpeg stderr", { sessionId, stderr: stderrBuffer.slice(-500) });
+      }
     });
 
     // `ready` resolves once the playlist exists. Settle-guarded so it can only

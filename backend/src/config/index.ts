@@ -38,7 +38,7 @@ export const config = {
   /** Max time (ms) for ffprobe inspection. */
   ffprobeTimeoutMs: intEnv("FFPROBE_TIMEOUT_MS", 30_000),
   /** Max time (ms) to wait for the first HLS segment. */
-  ffmpegStartupTimeoutMs: intEnv("FFMPEG_STARTUP_TIMEOUT_MS", 20_000),
+  ffmpegStartupTimeoutMs: intEnv("FFMPEG_STARTUP_TIMEOUT_MS", 60_000),
   /** HLS segment duration in seconds. */
   hlsSegmentSeconds: intEnv("HLS_SEGMENT_SECONDS", 6),
   /** Number of segments to retain in the HLS sliding window. */
