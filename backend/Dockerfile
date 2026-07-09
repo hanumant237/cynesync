@@ -1,3 +1,19 @@
+FROM oven/bun:1 AS builder
+
+WORKDIR /app
+
+# Copy package and lock files
+COPY package.json bun.lock ./
+
+# Install all dependencies (including devDependencies for build)
+RUN bun install --frozen-lockfile
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN bun run build
+
 FROM node:18-alpine
 
 # Install FFmpeg
@@ -5,22 +21,13 @@ RUN apk add --no-cache ffmpeg
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-RUN npm ci --only=production
-
-# Copy source code
-COPY . .
-
-# Build the application
-RUN npm run build
+# Copy built output and production dependencies
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/node_modules ./node_modules
 
 # Expose port
 EXPOSE 4001
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:4001/health || exit 1
-
 # Start the application
-CMD ["npm", "start"]
+CMD ["node", "dist/index.js"]
