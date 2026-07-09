@@ -93,9 +93,10 @@ export function isHlsUrl(url: string): boolean {
 
 /**
  * Validate a user-supplied video URL and return a friendly, actionable
- * message when invalid. This is a UI-level format check only — it does NOT
- * verify the resource exists or is authorized (that is out of scope for this
- * phase and intentionally not connected to the backend).
+ * message when invalid. This is a UI-level shape check only — it verifies the
+ * URL is non-empty and well-formed (http/https). Format detection (which
+ * containers/codecs are supported) is delegated to the backend's FFprobe
+ * inspection, so the frontend intentionally does NOT reject URLs by extension.
  */
 export function validateVideoUrl(raw: string): UrlValidationResult {
   const url = raw.trim();
@@ -121,18 +122,6 @@ export function validateVideoUrl(raw: string): UrlValidationResult {
     return {
       valid: false,
       reason: "Only http and https URLs are supported.",
-    };
-  }
-
-  const pathname = parsed.pathname.toLowerCase();
-  const hasKnownExtension = SUPPORTED_VIDEO_EXTENSIONS.some((ext) =>
-    pathname.endsWith(ext),
-  );
-  if (!hasKnownExtension) {
-    return {
-      valid: false,
-      reason:
-        "Unsupported file type. Use an HLS stream (.m3u8) or a video file (.mp4, .webm, .mov).",
     };
   }
 

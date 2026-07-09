@@ -13,3 +13,5 @@ export { VolumeSlider } from "@/components/player/VolumeSlider";
 export { PlaybackSpeedMenu } from "@/components/player/PlaybackSpeedMenu";
 export { LoadingOverlay } from "@/components/player/LoadingOverlay";
 export { ErrorOverlay } from "@/components/player/ErrorOverlay";
+export { StreamPreparing } from "@/components/player/StreamPreparing";
+export { StreamErrorCard } from "@/components/player/StreamErrorCard";

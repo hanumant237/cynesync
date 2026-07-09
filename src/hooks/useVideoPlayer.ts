@@ -19,12 +19,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type Hls from "hls.js";
+import type {
+  LoaderCallbacks,
+  LoaderConfiguration,
+  LoaderContext,
+} from "hls.js";
 import type { PlayerStatus } from "@/types/player";
 import {
   PLAYER_CONSTANTS,
   PLAYBACK_RATES,
   isHlsUrl,
 } from "@/utils/player";
+import { BACKEND_PORT } from "@/utils/constants";
 
 /** Everything the player UI needs to render and interact. */
 export interface UseVideoPlayerReturn {
@@ -67,6 +73,64 @@ function isTypingTarget(): boolean {
   if (!el) return false;
   if (el instanceof HTMLElement && el.isContentEditable) return true;
   return TYPING_TAGS.has(el.tagName);
+}
+
+/**
+ * Adapt a URL for the gateway: append the XTransformPort query param so the
+ * request routes to the backend. Also rewrites HLS segment paths — hls.js
+ * resolves segment references (e.g. "seg-00000.ts") relative to the playlist
+ * URL, yielding an absolute URL like
+ * "http://localhost:81/api/stream/<id>/seg-00000.ts", but the backend serves
+ * segments at "/api/stream/<id>/segments/<name>". This inserts "segments/".
+ *
+ * Applied to both relative (/api/…) and absolute (http://…/api/…) gateway
+ * URLs. External URLs (e.g. the Mux test stream) are returned unchanged.
+ */
+function adaptGatewayUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl, typeof window !== "undefined" ? window.location.href : "http://localhost");
+    const pathname = parsed.pathname;
+
+    // Only adapt URLs under /api/stream/ (the backend streaming API).
+    if (!pathname.includes("/api/stream/")) return rawUrl;
+
+    // Rewrite segment URLs to include the /segments/ path prefix.
+    // Matches: /api/stream/<id>/seg-XXXXX.ts → /api/stream/<id>/segments/seg-XXXXX.ts
+    const segmentMatch = pathname.match(
+      /^(.*\/api\/stream\/[^/]+)\/(seg-\d+\.ts)$/,
+    );
+    if (segmentMatch) {
+      parsed.pathname = `${segmentMatch[1]}/segments/${segmentMatch[2]}`;
+    }
+
+    // Append the gateway port (avoid duplicating if already present).
+    if (!parsed.searchParams.has("XTransformPort")) {
+      parsed.searchParams.set("XTransformPort", BACKEND_PORT);
+    }
+
+    return parsed.toString();
+  } catch {
+    // If URL parsing fails, return the original URL unchanged.
+    return rawUrl;
+  }
+}
+
+/**
+ * Create a custom hls.js loader that routes every fetch through the gateway.
+ * Used when the source URL is a relative /api/ path (backend HLS playlist).
+ */
+function createGatewayLoader(HlsClass: typeof Hls) {
+  const BaseLoader = HlsClass.DefaultConfig.loader;
+  return class GatewayLoader extends BaseLoader {
+    load(
+      context: LoaderContext,
+      config: LoaderConfiguration,
+      callbacks: LoaderCallbacks<LoaderContext>,
+    ) {
+      context.url = adaptGatewayUrl(context.url);
+      super.load(context, config, callbacks);
+    }
+  };
 }
 
 export function useVideoPlayer(): UseVideoPlayerReturn {
@@ -160,7 +224,19 @@ export function useVideoPlayer(): UseVideoPlayerReturn {
               // Workers can fail to resolve in some sandboxed/headless
               // environments; the main-thread path is the most reliable for a
               // dev/test player and has no practical downside at this scale.
-              const hls = new Hls({ enableWorker: false });
+              //
+              // When the source is a relative /api/ path (backend HLS
+              // playlist), use a gateway-aware loader that appends
+              // XTransformPort + rewrites segment paths so every fetch routes
+              // through the gateway to the backend.
+              const isGatewayUrl = url.startsWith("/");
+              const hlsConfig: ConstructorParameters<typeof Hls>[0] = {
+                enableWorker: false,
+              };
+              if (isGatewayUrl) {
+                hlsConfig.loader = createGatewayLoader(Hls);
+              }
+              const hls = new Hls(hlsConfig);
               hlsRef.current = hls;
               hls.attachMedia(video);
               hls.on(Hls.Events.MEDIA_ATTACHED, () => {

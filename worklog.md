@@ -154,3 +154,42 @@ Verification (12-point suite, all passed):
 Stage Summary:
 - Backend streaming engine complete and fully verified. TypeScript clean, ESLint clean, no broken imports. POST /stream validates URL + probes reachability + inspects via FFprobe + decides direct vs transcode; serves HLS playlist + segments; structured JSON errors for every failure class; graceful cleanup on shutdown. Backend ready for frontend integration in the next phase.
 - Did NOT modify the frontend. Did NOT implement watch-party/chat/voice/Socket.IO functionality.
+
+---
+Task ID: 5
+Agent: Z.ai Code (main)
+Task: Connect the existing frontend player with the streaming backend. POST /stream from frontend → backend returns stream info → player begins playback. Loading states, error handling, hls.js gateway routing. No watch-party/chat/voice.
+
+Work Log:
+- Read PROJECT.md; analyzed existing frontend (VideoPlayer, useVideoPlayer, UrlInputBar, PlayerPage, httpClient, constants) and backend API (StreamSession, ErrorBody, POST /stream, HLS playlist/segment routes).
+- Created src/types/stream.ts: frontend mirror of backend types (StreamSession, MediaInfo, CodecStream, StreamStrategy, StreamErrorBody, PrepareState, StreamError).
+- Created src/services/stream.ts: prepareStream() (POST /api/stream?XTransformPort=4001 via gateway), buildPlaybackUrl() (resolve direct URL or HLS playlist URL), mapStreamError() (classify axios/backend errors → friendly StreamError with retryable flag).
+- Created src/hooks/useStreamPreparation.ts: prepare state machine (idle → preparing → detecting → transcoding → ready | error) with staged loading messages, request cancellation guards, timer cleanup.
+- Built src/components/player/StreamPreparing.tsx: animated loading overlay with gradient ring spinner, staged progress indicator (Prepare → Detect → Transcode → Ready), cycling messages.
+- Built src/components/player/StreamErrorCard.tsx: beautiful glass error card with code-specific icons (CloudOff, Timer, FileQuestion, ServerCrash, etc.), friendly title + message, Retry/Dismiss buttons, error code badge.
+- Modified src/hooks/useVideoPlayer.ts: added gateway-aware hls.js loader. Key pieces:
+  - adaptGatewayUrl(): uses URL parsing to handle BOTH relative (/api/…) and absolute (http://localhost:81/api/…) URLs; appends XTransformPort query param; rewrites segment paths (/api/stream/<id>/seg-XXXXX.ts → /api/stream/<id>/segments/seg-XXXXX.ts) to match backend route.
+  - createGatewayLoader(): extends Hls.DefaultConfig.loader, overrides load() to call adaptGatewayUrl on every fetch (playlist + segments).
+  - Only activated when source URL starts with "/" (gateway URL); external URLs (Mux test stream) use default loader.
+- Relaxed validateVideoUrl() in src/utils/player.ts: removed extension check — backend now handles format detection via FFprobe, so frontend only validates URL shape (empty + malformed + http/https).
+- Changed UrlInputBar input type from "url" to "text" so custom validation messages show instead of browser's native "Please enter a URL."
+- Rewrote src/views/PlayerPage.tsx: wires UrlInputBar → useStreamPreparation → VideoPlayer. Shows StreamPreparing overlay during preparing/detecting/transcoding, StreamErrorCard on error, session metadata strip (container, codec, resolution, strategy) when ready.
+- Updated src/components/player/index.ts barrel + src/services/api.ts (added streamApi).
+
+Key bugs fixed during verification:
+1. Segment URLs were absolute (http://localhost:81/...) but adaptGatewayUrl only handled relative URLs (starting with "/"). Fixed by using URL parsing to handle both, with pathname-based matching for segment path rewriting.
+2. Error mapping: prepareStream threw a StreamError but useStreamPreparation passed it to mapStreamError which expected an AxiosError → fell through to "unexpected error." Fixed by removing validateStatus:() => true so axios throws on non-2xx, letting mapStreamError read the backend's ErrorBody from the AxiosError response.
+
+Verification (all passed):
+- `bun run lint` → exit 0. `bunx tsc --noEmit` → exit 0.
+- Agent Browser end-to-end through the Caddy gateway (port 81):
+  - Direct play (HLS sample): backend inspects → strategy=direct → video plays (readyState 4, paused false).
+  - Transcode (MKV VP9/Opus): backend inspects → strategy=hls → FFmpeg transcodes → segments served via gateway (segments/seg-00000.ts?XTransformPort=4001, HTTP 200) → video plays (readyState 4, currentTime 8.1, duration 10).
+  - Invalid URL ("not-a-url"): custom validation "That doesn't look like a valid URL. Make sure it starts with http:// or https://."
+  - Empty URL: custom validation "Please enter a video URL to continue."
+  - Unreachable URL (nonexistent.invalid): backend returns UNREACHABLE_URL (502) → frontend error card shows "The URL could not be reached." with Retry + Dismiss + code badge.
+  - No console errors.
+
+Stage Summary:
+- Frontend player successfully connected to the streaming backend. POST /stream called via gateway; backend inspects media and returns direct URL or HLS playlist; player auto-loads with hls.js (gateway-aware loader for segment routing) or native playback. All loading states (preparing/detecting/transcoding/ready) and error states (unreachable/invalid/empty) have polished UI. No console errors, lint clean, TypeScript clean.
+- Did NOT modify backend architecture. Did NOT implement watch-party/chat/voice.

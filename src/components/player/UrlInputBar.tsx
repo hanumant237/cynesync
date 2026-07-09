@@ -45,7 +45,7 @@ export function UrlInputBar({ onPlay, defaultValue = "" }: UrlInputBarProps) {
         <div className="relative flex-1">
           <Link2 className="pointer-events-none absolute left-3.5 top-1/2 h-[1.15rem] w-[1.15rem] -translate-y-1/2 text-muted-foreground" />
           <Input
-            type="url"
+            type="text"
             inputMode="url"
             value={value}
             onChange={(e) => {

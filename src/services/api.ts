@@ -1,15 +1,13 @@
 /**
  * CineSync — API Service Layer
  *
- * Central place for backend-facing calls. Each domain (media, watch parties,
- * settings, ...) gets its own module. This file aggregates them so pages can
- * import from `@/services/api` uniformly.
- *
- * In this foundation phase the methods are placeholders that document the
- * intended contract; they will be implemented when the backend is built.
+ * Central place for backend-facing calls. Each domain (media, stream, watch
+ * parties, settings, ...) gets its own module. This file aggregates them so
+ * pages can import from `@/services/api` uniformly.
  */
 
 import { httpClient } from "@/services/httpClient";
+import { prepareStream, buildPlaybackUrl, mapStreamError } from "@/services/stream";
 import type { MediaItem } from "@/types/media";
 
 /** Media-related API calls. */
@@ -24,6 +22,13 @@ export const mediaApi = {
     const { data } = await httpClient.get<MediaItem>(`/media/${id}`);
     return data;
   },
+};
+
+/** Stream-related API calls (connected to the backend streaming engine). */
+export const streamApi = {
+  prepareStream,
+  buildPlaybackUrl,
+  mapStreamError,
 };
 
 /** Watch-party-related API calls (placeholder for a future phase). */
@@ -45,6 +50,7 @@ export const settingsApi = {
 /** Aggregated API surface for convenient `import { mediaApi } from "@/services/api"`. */
 export const api = {
   media: mediaApi,
+  stream: streamApi,
   watchParty: watchPartyApi,
   settings: settingsApi,
 };
