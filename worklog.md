@@ -238,3 +238,41 @@ Verification (14/14 tests passed):
 Stage Summary:
 - Watch Party synchronization backend complete and fully verified. TypeScript clean, ESLint clean, no broken imports. Socket.IO engine with RoomManager/UserManager/PlaybackSync/SocketManager/RoomEvents services; short shareable room codes (ABCD12 format); host-only playback control (play/pause/seek/speed/video); latency-compensated sync via server timestamps; automatic host migration on disconnect; empty room reaping; structured error handling (never crashes); full logging. 14/14 integration tests pass.
 - Did NOT build any frontend, chat, or voice. Did NOT redesign pages.
+
+---
+Task ID: 7
+Agent: Z.ai Code (main)
+Task: Build the Watch Party frontend UI that communicates with the existing Socket.IO backend. Premium dark glassmorphism, Netflix/Discord inspired. No backend changes, no chat/voice/auth.
+
+Work Log:
+- Read PROJECT.md; analyzed existing Watch Party placeholder, backend watch-party protocol (types/watchParty.ts: Participant, PlaybackSyncState, RoomSnapshot, SyncPayload, ClientToServerEvents, ServerToClientEvents, WatchPartyErrorCode), existing common components (GlassCard, Container, PageHeader), socket service, constants, and player utils.
+- Created src/types/watchParty.ts: frontend mirror of backend types (Participant, PlaybackSyncState, RoomSnapshot, SyncPayload, WatchPartyErrorCode, WatchPartyError, AckResult, CreateRoomResult, JoinRoomResult) + client-only UI types (WatchPartyPhase, ConnectionStatusKind, SyncStatus, WatchPartyUiError).
+- Built src/hooks/useWatchParty.ts: Socket.IO state machine. Owns socket connection (through gateway via ?XTransformPort), create-room/join-room/leave-room with ack callbacks, host controls (hostPlay/hostPause/hostSeek/hostChangeSpeed/hostChangeVideo), latency-compensated position ticker (500ms interval computing position + elapsed * speed), connection status tracking (connected/connecting/reconnecting/disconnected), sync status (synced/synchronizing/buffering/disconnected), auto-reconnect with room re-sync, error classification (ROOM_NOT_FOUND/DUPLICATE_USERNAME/NOT_HOST/INTERNAL_ERROR → friendly WatchPartyUiError). Fixed lint error: removed setConnectionStatus from useEffect body (socket event listeners drive status instead).
+- Built 11 reusable components in src/components/watch-party/:
+  - HostBadge.tsx (gradient pill with Crown icon)
+  - ConnectionStatus.tsx (animated pulsing dot: green/amber/red for connected/connecting/reconnecting/disconnected)
+  - PlaybackStatus.tsx (position/speed/sync-anchor/video URL in a glass card)
+  - ParticipantCard.tsx (gradient avatar initial, online dot, host badge, join/leave animations via Framer Motion)
+  - ParticipantList.tsx (AnimatePresence list with count + "waiting for others" empty state)
+  - InviteCard.tsx (room code display + copy-to-clipboard button + invite link + copy button, animated check on copy)
+  - RoomHeader.tsx (room code, host badge, connection status, leave button)
+  - RoomCard.tsx (lobby card with Create Room / Join Room tabs, animated tab indicator, username + video URL inputs)
+  - HostControls.tsx (play/pause, reset, seek slider, speed buttons, change video — host only)
+  - WatchPartyErrorCard.tsx (error icon by kind, title, message, Retry + Back to lobby buttons)
+  - WatchPartyLobby.tsx + WatchPartyRoom.tsx (sub-views composing the components)
+  - index.ts barrel
+- Rewrote src/views/WatchPartyPage.tsx: orchestrates lobby → connecting → in-room → error phases with AnimatePresence transitions. Phase-driven rendering: lobby (RoomCard), connecting (lobby + spinner), in-room (WatchPartyRoom), error (WatchPartyErrorCard).
+
+Verification (all passed):
+- `bun run lint` → exit 0. `bunx tsc --noEmit` → exit 0.
+- Agent Browser end-to-end through the Caddy gateway (port 81):
+  - Lobby renders: "Watch Party" heading, Create Room / Join Room tabs, username + video URL inputs.
+  - Create Room: filled username "Host" → clicked Create Room → room created (code CZKN8X/NBFXBJ) → room view appears with room code, connection status "Connected", sync status "Synced", playback status (Paused, position, speed, sync anchor), host controls (Play/Pause/Seek/Speed/Change Video), participant list ("You", "Online", "Waiting for others to join…"), invite card (room code + copy button + invite link + copy button).
+  - Host Play: clicked Play → playback state → "Playing", seek slider advanced, backend log "Host play position:0".
+  - Host Pause: clicked Pause → playback state → "Paused", backend log "Host pause position:2.044".
+  - Error state: Join tab → room code "ZZZZZZ" + username → clicked Join → "Room not found" error card with "Back to lobby" button.
+  - No console errors throughout.
+- VLM visual review: 9/10 — room code prominent, connection status indicator, playback card, host controls, participants list, invite card, premium dark glassmorphism with purple accents.
+
+Stage Summary:
+- Watch Party frontend complete and fully verified. Lint clean, TypeScript clean, no console errors. Frontend communicates with the existing Socket.IO backend (create/join/leave room, host play/pause/seek/speed/video, participant sync, error handling). Premium dark glassmorphism UI with Framer Motion animations (fade/slide/scale/hover), reusable components (RoomCard, ParticipantList, ParticipantCard, ConnectionStatus, InviteCard, HostBadge, PlaybackStatus, RoomHeader, HostControls, WatchPartyErrorCard), responsive (desktop/tablet/mobile). No chat, voice, auth, or backend changes.
