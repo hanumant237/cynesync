@@ -4,8 +4,11 @@
  * CineSync — WatchPartyRoom
  *
  * The in-room view: room header, connection status, playback status, host
- * controls (host only), participant list, and invite card. Responsive grid
- * layout that stacks on mobile.
+ * controls (host only), participant list, invite card, and the realtime
+ * chat panel. Responsive grid layout that stacks on mobile.
+ *
+ * The chat panel reuses the existing Socket.IO connection from useWatchParty
+ * via the useChat hook — no second socket is created.
  */
 
 import { motion } from "framer-motion";
@@ -18,6 +21,8 @@ import {
   PlaybackStatus,
   RoomHeader,
 } from "@/components/watch-party";
+import { ChatPanel } from "@/components/chat";
+import { useChat } from "@/hooks/useChat";
 import type { UseWatchPartyReturn } from "@/hooks/useWatchParty";
 
 export interface WatchPartyRoomProps {
@@ -26,6 +31,15 @@ export interface WatchPartyRoomProps {
 
 export function WatchPartyRoom({ wp }: WatchPartyRoomProps) {
   const { room, isHost, connectionStatus, currentPosition, mySocketId } = wp;
+
+  // Reuse the existing socket for chat — no second connection.
+  const chat = useChat(
+    wp.socket,
+    room?.code ?? null,
+    mySocketId,
+    wp.myUsername,
+    connectionStatus === "connected",
+  );
 
   if (!room) return null;
 
@@ -38,7 +52,8 @@ export function WatchPartyRoom({ wp }: WatchPartyRoomProps) {
         onLeave={wp.leaveRoom}
       />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px]">
+      {/* Three-column grid on large screens: main | sidebar | chat */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_300px_340px]">
         {/* Main column */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -79,7 +94,7 @@ export function WatchPartyRoom({ wp }: WatchPartyRoomProps) {
           ) : null}
         </motion.div>
 
-        {/* Sidebar */}
+        {/* Sidebar: participants + invite */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -88,6 +103,20 @@ export function WatchPartyRoom({ wp }: WatchPartyRoomProps) {
         >
           <ParticipantList participants={room.participants} mySocketId={mySocketId} />
           <InviteCard roomCode={room.code} />
+        </motion.div>
+
+        {/* Chat panel */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.16, ease: "easeOut" }}
+          className="flex flex-col"
+        >
+          <ChatPanel
+            chat={chat}
+            mySocketId={mySocketId}
+            connectionStatus={connectionStatus}
+          />
         </motion.div>
       </div>
     </Container>

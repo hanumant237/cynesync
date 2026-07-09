@@ -124,6 +124,12 @@ export type ClientToServerEvents = {
   "watch-party:host-change-video": (payload: HostChangeVideoPayload, ack: (res: AckResult) => void) => void;
   /** Participant: signal that the player is ready and requesting initial sync. */
   "watch-party:participant-ready": (payload: ParticipantReadyPayload) => void;
+  /** Chat: send a message to the room. */
+  "watch-party:send-message": (payload: SendMessagePayload, ack: (res: AckResult) => void) => void;
+  /** Chat: notify the room that the user is typing. */
+  "watch-party:typing": (payload: TypingPayload) => void;
+  /** Chat: notify the room that the user stopped typing. */
+  "watch-party:stop-typing": (payload: TypingPayload) => void;
 };
 
 /**
@@ -141,6 +147,12 @@ export type ServerToClientEvents = {
   "watch-party:sync": (payload: SyncPayload) => void;
   /** An error occurred (sent only to the offending socket). */
   "watch-party:error": (error: WatchPartyError) => void;
+  /** Chat: a message was received (user or system). */
+  "watch-party:receive-message": (payload: ReceiveMessagePayload) => void;
+  /** Chat: a user started typing. */
+  "watch-party:typing": (payload: TypingPayload) => void;
+  /** Chat: a user stopped typing. */
+  "watch-party:stop-typing": (payload: TypingPayload) => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -209,6 +221,49 @@ export interface ParticipantDisconnectedPayload {
   username: string;
   /** Whether a new host was assigned after this disconnect. */
   newHostSocketId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Chat types
+// ---------------------------------------------------------------------------
+
+/** Type of a chat message — user-generated or system-generated. */
+export type ChatMessageType = "user" | "system";
+
+/**
+ * A chat message in a watch-party room. User messages carry a username +
+ * socketId; system messages (join/leave/play/pause notices) carry only text.
+ */
+export interface ChatMessage {
+  /** Unique message id (server-generated). */
+  id: string;
+  /** "user" or "system". */
+  type: ChatMessageType;
+  /** The message text. */
+  text: string;
+  /** Sender's username (user messages only). */
+  username?: string;
+  /** Sender's socket id (user messages only). */
+  socketId?: string;
+  /** Server epoch milliseconds when the message was sent. */
+  timestamp: number;
+}
+
+/** Payload for the `send-message` client → server event. */
+export interface SendMessagePayload {
+  code: string;
+  text: string;
+}
+
+/** Payload for the `typing` / `stop-typing` client → server events. */
+export interface TypingPayload {
+  code: string;
+  username: string;
+}
+
+/** Payload for the `receive-message` server → client event. */
+export interface ReceiveMessagePayload {
+  message: ChatMessage;
 }
 
 /** Generic acknowledgement result for events that use `ack`. */

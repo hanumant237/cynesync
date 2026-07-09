@@ -18,6 +18,9 @@ import type {
   SyncPayload,
   ParticipantDisconnectedPayload,
   WatchPartyError,
+  ChatMessage,
+  TypingPayload,
+  ReceiveMessagePayload,
 } from "../types/watchParty.js";
 import { toRoomSnapshot } from "../types/watchParty.js";
 import type { Room } from "../types/watchParty.js";
@@ -67,6 +70,45 @@ export class SocketManager {
   /** Send an error to a single socket. */
   sendError(socket: Socket, error: WatchPartyError): void {
     socket.emit("watch-party:error", error);
+  }
+
+  // -------------------------------------------------------------------------
+  // Chat broadcast helpers
+  // -------------------------------------------------------------------------
+
+  /** Broadcast a chat message to every participant in a room. */
+  broadcastChatMessage(room: Room, message: ChatMessage): void {
+    const payload: ReceiveMessagePayload = { message };
+    this.io.to(room.code).emit("watch-party:receive-message", payload);
+  }
+
+  /** Broadcast a system chat message (join/leave/play/pause notices). */
+  broadcastSystemMessage(room: Room, text: string): void {
+    const message: ChatMessage = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type: "system",
+      text,
+      timestamp: Date.now(),
+    };
+    this.broadcastChatMessage(room, message);
+  }
+
+  /** Broadcast a typing indicator to a room (excluding the typing user). */
+  broadcastTyping(room: Room, payload: TypingPayload, exceptSocketId?: string): void {
+    room.participants.forEach((p) => {
+      if (p.socketId !== exceptSocketId) {
+        this.io.to(p.socketId).emit("watch-party:typing", payload);
+      }
+    });
+  }
+
+  /** Broadcast a stop-typing indicator to a room (excluding the user). */
+  broadcastStopTyping(room: Room, payload: TypingPayload, exceptSocketId?: string): void {
+    room.participants.forEach((p) => {
+      if (p.socketId !== exceptSocketId) {
+        this.io.to(p.socketId).emit("watch-party:stop-typing", payload);
+      }
+    });
   }
 
   /** Have a socket join a Socket.IO room (so it receives room broadcasts). */

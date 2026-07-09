@@ -34,6 +34,9 @@ import type {
   Room,
   SyncPayload,
   WatchPartyError,
+  SendMessagePayload,
+  TypingPayload,
+  ChatMessage,
 } from "../types/watchParty.js";
 
 const log = new Logger("RoomEvents");
@@ -93,6 +96,15 @@ export class RoomEvents {
     );
     socket.on("watch-party:participant-ready", (payload) =>
       this.handleParticipantReady(socket, payload),
+    );
+    socket.on("watch-party:send-message", (payload, ack) =>
+      this.handleSendMessage(socket, payload, ack),
+    );
+    socket.on("watch-party:typing", (payload) =>
+      this.handleTyping(socket, payload),
+    );
+    socket.on("watch-party:stop-typing", (payload) =>
+      this.handleStopTyping(socket, payload),
     );
     socket.on("disconnect", (reason) => this.handleDisconnect(socket, reason));
     socket.on("error", (error) => {
@@ -169,6 +181,9 @@ export class RoomEvents {
       // Notify everyone else that a participant joined.
       this.socketManager.broadcastParticipantJoined(room, participant);
 
+      // Broadcast a system chat message: "X joined."
+      this.socketManager.broadcastSystemMessage(room, `${participant.username} joined.`);
+
       // Send the joiner the current room state + an initial sync anchored to now.
       this.socketManager.sendRoomState(socket, room);
       this.sendInitialSync(socket, room);
@@ -202,6 +217,9 @@ export class RoomEvents {
 
       // If the room was destroyed (empty), nothing more to do.
       if (room.participants.size === 0) return;
+
+      // Broadcast a system chat message: "X left."
+      this.socketManager.broadcastSystemMessage(room, `${participant.username} left.`);
 
       // Notify remaining participants.
       this.socketManager.broadcastParticipantDisconnected(room, {
@@ -237,6 +255,9 @@ export class RoomEvents {
 
       const playback = this.playbackSync.applyPlay(room, payload.position);
       this.emitSync(socket, room, "play", playback);
+      // System message: "Playback resumed."
+      const hostUsername = room.participants.get(socket.id)?.username ?? "Host";
+      this.socketManager.broadcastSystemMessage(room, `${hostUsername} resumed playback.`);
       ack(ok());
     } catch (error) {
       this.handleUnexpected(socket, "host-play", error, ack);
@@ -255,6 +276,9 @@ export class RoomEvents {
 
       const playback = this.playbackSync.applyPause(room, payload.position);
       this.emitSync(socket, room, "pause", playback);
+      // System message: "Playback paused."
+      const hostUsername = room.participants.get(socket.id)?.username ?? "Host";
+      this.socketManager.broadcastSystemMessage(room, `${hostUsername} paused playback.`);
       ack(ok());
     } catch (error) {
       this.handleUnexpected(socket, "host-pause", error, ack);
@@ -384,6 +408,9 @@ export class RoomEvents {
       // If the room was destroyed (empty), nothing more to do.
       if (room.participants.size === 0) return;
 
+      // Broadcast a system chat message: "X disconnected."
+      this.socketManager.broadcastSystemMessage(room, `${participant.username} disconnected.`);
+
       // Notify remaining participants.
       this.socketManager.broadcastParticipantDisconnected(room, {
         socketId: socket.id,
@@ -396,6 +423,72 @@ export class RoomEvents {
         socketId: socket.id,
         error: String(error),
       });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Chat: send-message / typing / stop-typing
+  // -------------------------------------------------------------------------
+
+  private handleSendMessage(
+    socket: Socket,
+    payload: SendMessagePayload,
+    ack: (res: AckResult) => void,
+  ): void {
+    try {
+      const ctx = this.roomManager.getParticipant(socket.id);
+      if (!ctx) {
+        ack({ ok: false, error: "NOT_IN_ROOM", message: "You are not in a room." });
+        return;
+      }
+      const { room, participant } = ctx;
+
+      const text = (payload.text ?? "").trim();
+      if (!text) {
+        ack({ ok: false, error: "INVALID_PAYLOAD", message: "Message cannot be empty." });
+        return;
+      }
+      if (text.length > 500) {
+        ack({ ok: false, error: "INVALID_PAYLOAD", message: "Message is too long (500 char max)." });
+        return;
+      }
+
+      const message: ChatMessage = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        type: "user",
+        text,
+        username: participant.username,
+        socketId: socket.id,
+        timestamp: Date.now(),
+      };
+
+      this.socketManager.broadcastChatMessage(room, message);
+      log.info("Chat message", { code: room.code, username: participant.username });
+      ack(ok());
+    } catch (error) {
+      this.handleUnexpected(socket, "send-message", error, ack);
+    }
+  }
+
+  private handleTyping(socket: Socket, payload: TypingPayload): void {
+    try {
+      const ctx = this.roomManager.getParticipant(socket.id);
+      if (!ctx) return;
+      const { room } = ctx;
+      this.socketManager.broadcastTyping(room, payload, socket.id);
+    } catch (error) {
+      this.handleUnexpected(socket, "typing", error);
+    }
+  }
+
+  private handleStopTyping(socket: Socket, payload: TypingPayload): void {
+    try {
+      const ctx = this.roomManager.getParticipant(socket.id);
+      if (!ctx) return;
+      const { room } = ctx;
+      this.socketManager.broadcastStopTyping(room, payload, socket.id);
+    } catch (error) {
+      this.handleUnexpected(socket, "stop-typing", error);
     }
   }
 

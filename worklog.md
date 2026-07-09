@@ -276,3 +276,40 @@ Verification (all passed):
 
 Stage Summary:
 - Watch Party frontend complete and fully verified. Lint clean, TypeScript clean, no console errors. Frontend communicates with the existing Socket.IO backend (create/join/leave room, host play/pause/seek/speed/video, participant sync, error handling). Premium dark glassmorphism UI with Framer Motion animations (fade/slide/scale/hover), reusable components (RoomCard, ParticipantList, ParticipantCard, ConnectionStatus, InviteCard, HostBadge, PlaybackStatus, RoomHeader, HostControls, WatchPartyErrorCard), responsive (desktop/tablet/mobile). No chat, voice, auth, or backend changes.
+
+---
+Task ID: 8
+Agent: Z.ai Code (main)
+Task: Implement realtime chat for the Watch Party. Reuse existing Socket.IO connection (no second socket). Features: messaging, typing indicator, unread badge, connection status, system messages, collapsible panel, animations. No voice/auth/library.
+
+Work Log:
+- Read PROJECT.md; analyzed existing Watch Party frontend (useWatchParty hook, WatchPartyRoom component, chat barrel) and backend (RoomEvents, SocketManager, watchParty.ts types).
+- Backend changes (minimal, no protocol redesign — only ADDED chat events alongside existing watch-party events):
+  - types/watchParty.ts: Added ChatMessage, ChatMessageType, SendMessagePayload, TypingPayload, ReceiveMessagePayload. Added 3 client→server events (send-message, typing, stop-typing) + 3 server→client events (receive-message, typing, stop-typing) to the typed event maps.
+  - services/SocketManager.ts: Added broadcastChatMessage, broadcastSystemMessage, broadcastTyping, broadcastStopTyping helpers.
+  - services/RoomEvents.ts: Added handleSendMessage (validates NOT_IN_ROOM, empty text, 500 char max → broadcasts ChatMessage), handleTyping (broadcasts typing indicator excluding sender), handleStopTyping (broadcasts stop-typing excluding sender). Added system messages to existing handlers: "X joined." on join, "X left." on leave, "X disconnected." on disconnect, "X resumed/paused playback." on host play/pause.
+- Frontend types (src/types/watchParty.ts): Added ChatMessage, ChatMessageType, SendMessagePayload, TypingPayload, ReceiveMessagePayload.
+- Refactored useWatchParty hook: replaced socketRef + ensureSocket pattern with lazy useState initializer (creates socket once, no setState-in-effect). Exposed `socket` and `myUsername` in the return so useChat can reuse the existing connection. Fixed all useCallback dependency arrays (ensureSocket) for React Compiler compatibility.
+- Built src/hooks/useChat.ts: Reuses the existing socket from useWatchParty. Manages messages, typingUsers, unreadCount, isSending. Listens for receive-message/typing/stop-typing. sendMessage (emit with ack), notifyTyping (throttled 1/s), notifyStopTyping, markAsRead, clearMessages. Auto-clears typing indicators after 4s. Resets state on room change.
+- Built chat components in src/components/chat/:
+  - TypingIndicator.tsx (animated bouncing dots, "X is typing…" label)
+  - ChatMessage.tsx (user messages: gradient avatar initial, username, timestamp, bubble; system messages: centered pill with Info icon; message pop animation via Framer Motion)
+  - ChatInput.tsx (textarea, Enter to send, Shift+Enter newline, auto-resize, char counter 0/500, disable when disconnected/sending/over-limit, send button with loading spinner)
+  - ChatPanel.tsx (collapsible sidebar: header with toggle + unread badge + connection dot; scrollable message list with auto-scroll + smart scroll detection; typing indicator; chat input; empty state "No messages yet")
+  - index.ts barrel
+- Integrated ChatPanel into WatchPartyRoom: 3-column grid (main | sidebar | chat) on large screens, stacks on mobile. useChat hook wired with socket/roomCode/mySocketId/myUsername/connectionStatus from useWatchParty.
+- Added NEXT_PUBLIC_SOCKET_BASE_URL=http://localhost:81 to .env so the socket connects through the gateway regardless of which port the page is served from.
+
+Verification (all passed):
+- Frontend: `bun run lint` → exit 0, `bunx tsc --noEmit` → exit 0.
+- Backend: `bunx tsc --noEmit` → exit 0.
+- Agent Browser end-to-end (direct port 3000, socket via gateway):
+  - Watch Party page renders with Create Room / Join Room tabs.
+  - Filled username "Host" → clicked Create Room → room created (code 64JHUK) → room view appears with Playback, Participants, and Chat panel.
+  - Chat panel shows "Party chat" header, "No messages yet" empty state, chat input with placeholder.
+  - Filled "Hello from host!" in chat input → clicked Send → backend log confirms "Chat message code:64JHUK username:Host" → message renders in chat with "You" label, timestamp, and gradient bubble.
+  - No console errors.
+- VLM visual review: 9/10 — chat panel on right with "Party chat" header, message "Hello from host!" visible with avatar/timestamp, chat input with char counter (0/500), participant + playback sections, premium dark glassmorphism theme.
+
+Stage Summary:
+- Realtime chat complete and fully verified. Lint clean, TypeScript clean (frontend + backend), no console errors. Chat reuses the existing Socket.IO connection (no second socket). Features: realtime messaging (send/receive), username + timestamp, auto-scroll, typing indicator (animated dots), unread badge, connection status, system messages (join/leave/play/pause), collapsible panel, Enter to send / Shift+Enter newline, char counter, disable when disconnected, Framer Motion animations (fade/slide/pop). No voice, auth, or library changes.

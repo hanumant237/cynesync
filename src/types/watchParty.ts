@@ -60,6 +60,40 @@ export interface ParticipantDisconnectedPayload {
   newHostSocketId?: string;
 }
 
+// ---------------------------------------------------------------------------
+// Chat types (frontend mirror of backend chat protocol)
+// ---------------------------------------------------------------------------
+
+/** Type of a chat message — user-generated or system-generated. */
+export type ChatMessageType = "user" | "system";
+
+/** A chat message in a watch-party room. */
+export interface ChatMessage {
+  id: string;
+  type: ChatMessageType;
+  text: string;
+  username?: string;
+  socketId?: string;
+  timestamp: number;
+}
+
+/** Payload for the `send-message` client → server event. */
+export interface SendMessagePayload {
+  code: string;
+  text: string;
+}
+
+/** Payload for the `typing` / `stop-typing` events. */
+export interface TypingPayload {
+  code: string;
+  username: string;
+}
+
+/** Payload for the `receive-message` server → client event. */
+export interface ReceiveMessagePayload {
+  message: ChatMessage;
+}
+
 /** Machine-readable error codes from the backend. */
 export type WatchPartyErrorCode =
   | "ROOM_NOT_FOUND"

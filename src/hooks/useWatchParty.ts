@@ -62,6 +62,10 @@ export interface UseWatchPartyReturn {
   currentPosition: number;
   /** Classified UI error (set when phase === "error"). */
   error: WatchPartyUiError | null;
+  /** The underlying Socket.IO socket (exposed so useChat can reuse it). */
+  socket: Socket | null;
+  /** The local user's display name (from the room's participant list). */
+  myUsername: string | null;
   /** Create a new room (creator becomes host). */
   createRoom: (username: string, videoUrl: string) => Promise<void>;
   /** Join an existing room by code. */
@@ -83,8 +87,22 @@ export interface UseWatchPartyReturn {
 }
 
 export function useWatchParty(): UseWatchPartyReturn {
-  const socketRef = useRef<Socket | null>(null);
   const roomRef = useRef<RoomSnapshot | null>(null);
+
+  // Create the socket exactly once via a lazy state initializer. This avoids
+  // creating it in an effect (which would require setState-in-effect) and
+  // avoids re-creating it on every render.
+  const [socket] = useState<Socket>(() => {
+    const url = `${SOCKET_BASE_URL}/?XTransformPort=${BACKEND_PORT}`;
+    return io(url, {
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: WP_CONSTANTS.RECONNECT_DELAYS_MS[0],
+      reconnectionDelayMax: WP_CONSTANTS.RECONNECT_DELAYS_MS[2],
+      autoConnect: false,
+    });
+  });
 
   const [phase, setPhase] = useState<WatchPartyPhase>("lobby");
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatusKind>("connecting");
@@ -118,57 +136,47 @@ export function useWatchParty(): UseWatchPartyReturn {
   }, [room, connectionStatus]);
 
   // -------------------------------------------------------------------------
-  // Socket lifecycle
+  // Socket lifecycle: wire event listeners + connect on mount
   // -------------------------------------------------------------------------
 
-  /** Ensure a socket exists and is connected. Returns the socket. */
-  const ensureSocket = useCallback((): Socket => {
-    if (socketRef.current) return socketRef.current;
-
-    const url = `${SOCKET_BASE_URL}/?XTransformPort=${BACKEND_PORT}`;
-    const socket = io(url, {
-      transports: ["websocket"],
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: WP_CONSTANTS.RECONNECT_DELAYS_MS[0],
-      reconnectionDelayMax: WP_CONSTANTS.RECONNECT_DELAYS_MS[2],
-      autoConnect: false,
-    });
-    socketRef.current = socket;
-
+  useEffect(() => {
     // Connection status listeners.
-    socket.on("connect", () => {
+    const onConnect = () => {
       setMySocketId(socket.id ?? null);
       setConnectionStatus("connected");
       setSyncStatus("synced");
-    });
-    socket.on("disconnect", () => {
+    };
+    const onDisconnect = () => {
       setConnectionStatus("disconnected");
       setSyncStatus("disconnected");
-    });
-    socket.io.on("reconnect_attempt", () => {
+    };
+    const onReconnectAttempt = () => {
       setConnectionStatus("reconnecting");
       setSyncStatus("disconnected");
-    });
-    socket.io.on("reconnect", () => {
+    };
+    const onReconnect = () => {
       setConnectionStatus("connected");
-      // Re-join the room if we were in one.
       if (roomRef.current) {
         socket.emit("watch-party:participant-ready", { code: roomRef.current.code });
       }
-    });
-    socket.on("connect_error", () => {
+    };
+    const onConnectError = () => {
       setConnectionStatus("disconnected");
-    });
+    };
+
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+    socket.io.on("reconnect_attempt", onReconnectAttempt);
+    socket.io.on("reconnect", onReconnect);
+    socket.on("connect_error", onConnectError);
 
     // Watch-party event listeners.
-    socket.on("watch-party:room-state", (snapshot: RoomSnapshot) => {
+    const onRoomState = (snapshot: RoomSnapshot) => {
       setRoom(snapshot);
       setSyncStatus("synced");
-    });
-    socket.on("watch-party:sync", (payload: SyncPayload) => {
+    };
+    const onSync = (payload: SyncPayload) => {
       setSyncStatus("synchronizing");
-      // Apply the sync immediately — the position ticker will advance it.
       if (roomRef.current) {
         setRoom({
           ...roomRef.current,
@@ -176,40 +184,47 @@ export function useWatchParty(): UseWatchPartyReturn {
           videoUrl: payload.videoUrl ?? roomRef.current.videoUrl,
         });
       }
-      // Clear the "synchronizing" indicator after a brief moment.
       setTimeout(() => setSyncStatus("synced"), 600);
-    });
-    socket.on("watch-party:participant-joined", (_participant: Participant) => {
-      // The room-state broadcast will include the new participant, so we
-      // don't need to mutate here — just acknowledge.
-    });
-    socket.on("watch-party:participant-disconnected", () => {
-      // The room-state broadcast will reflect the updated participant list.
-      // If a host migration occurred, room-state will carry the new hostSocketId.
-    });
-    socket.on("watch-party:error", (err: { code: WatchPartyErrorCode; message: string }) => {
+    };
+    const onParticipantJoined = (_participant: Participant) => {
+      // room-state broadcast includes the new participant.
+    };
+    const onParticipantDisconnected = () => {
+      // room-state broadcast reflects the updated participant list.
+    };
+    const onError = (err: { code: WatchPartyErrorCode; message: string }) => {
       setError(classifyError(err.code, err.message));
       setPhase("error");
-    });
+    };
 
-    return socket;
-  }, []);
+    socket.on("watch-party:room-state", onRoomState);
+    socket.on("watch-party:sync", onSync);
+    socket.on("watch-party:participant-joined", onParticipantJoined);
+    socket.on("watch-party:participant-disconnected", onParticipantDisconnected);
+    socket.on("watch-party:error", onError);
 
-  /** Connect the socket (used when entering the watch-party page). */
-  useEffect(() => {
-    const socket = ensureSocket();
+    // Connect now.
     if (!socket.connected) {
-      // The socket's own event listeners (connect/reconnect_attempt) drive
-      // connectionStatus, so we don't set state here — that would trigger a
-      // cascading render. Just initiate the connection.
       socket.connect();
     }
+
     return () => {
-      // Disconnect on unmount.
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
+      socket.io.off("reconnect_attempt", onReconnectAttempt);
+      socket.io.off("reconnect", onReconnect);
+      socket.off("connect_error", onConnectError);
+      socket.off("watch-party:room-state", onRoomState);
+      socket.off("watch-party:sync", onSync);
+      socket.off("watch-party:participant-joined", onParticipantJoined);
+      socket.off("watch-party:participant-disconnected", onParticipantDisconnected);
+      socket.off("watch-party:error", onError);
       socket.disconnect();
-      socketRef.current = null;
     };
-  }, [ensureSocket]);
+  }, [socket]);
+
+  /** Ensure the socket exists (it always does now — created in useState). */
+  const ensureSocket = useCallback((): Socket => socket, [socket]);
 
   // -------------------------------------------------------------------------
   // Room operations
@@ -276,14 +291,14 @@ export function useWatchParty(): UseWatchPartyReturn {
   );
 
   const leaveRoom = useCallback(() => {
-    const socket = socketRef.current;
+    const socket = ensureSocket();
     if (socket && roomRef.current) {
       socket.emit("watch-party:leave-room");
     }
     setRoom(null);
     setPhase("lobby");
     setCurrentPosition(0);
-  }, []);
+  }, [ensureSocket]);
 
   // -------------------------------------------------------------------------
   // Host controls
@@ -294,14 +309,14 @@ export function useWatchParty(): UseWatchPartyReturn {
       event: "watch-party:host-play" | "watch-party:host-pause",
       position: number,
     ): Promise<void> => {
-      const socket = socketRef.current;
+      const socket = ensureSocket();
       const room = roomRef.current;
       if (!socket || !room) return Promise.resolve();
       return new Promise<void>((resolve) => {
         socket.emit(event, { code: room.code, position }, () => resolve());
       });
     },
-    [],
+    [ensureSocket],
   );
 
   const hostPlay = useCallback(async () => {
@@ -314,7 +329,7 @@ export function useWatchParty(): UseWatchPartyReturn {
 
   const hostSeek = useCallback(
     async (position: number) => {
-      const socket = socketRef.current;
+      const socket = ensureSocket();
       const room = roomRef.current;
       if (!socket || !room) return;
       // Optimistically update local position for snappy UX.
@@ -327,12 +342,12 @@ export function useWatchParty(): UseWatchPartyReturn {
         );
       });
     },
-    [],
+    [ensureSocket],
   );
 
   const hostChangeSpeed = useCallback(
     async (speed: number) => {
-      const socket = socketRef.current;
+      const socket = ensureSocket();
       const room = roomRef.current;
       if (!socket || !room) return;
       return new Promise<void>((resolve) => {
@@ -343,12 +358,12 @@ export function useWatchParty(): UseWatchPartyReturn {
         );
       });
     },
-    [],
+    [ensureSocket],
   );
 
   const hostChangeVideo = useCallback(
     async (videoUrl: string) => {
-      const socket = socketRef.current;
+      const socket = ensureSocket();
       const room = roomRef.current;
       if (!socket || !room) return;
       return new Promise<void>((resolve) => {
@@ -359,7 +374,7 @@ export function useWatchParty(): UseWatchPartyReturn {
         );
       });
     },
-    [],
+    [ensureSocket],
   );
 
   const dismissError = useCallback(() => {
@@ -375,6 +390,11 @@ export function useWatchParty(): UseWatchPartyReturn {
     room && mySocketId && room.hostSocketId === mySocketId,
   );
 
+  const myUsername = (() => {
+    if (!room || !mySocketId) return null;
+    return room.participants.find((p) => p.socketId === mySocketId)?.username ?? null;
+  })();
+
   return {
     phase,
     connectionStatus,
@@ -384,6 +404,8 @@ export function useWatchParty(): UseWatchPartyReturn {
     isHost,
     currentPosition,
     error,
+    socket,
+    myUsername,
     createRoom,
     joinRoom,
     leaveRoom,
