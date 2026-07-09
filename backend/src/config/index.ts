@@ -52,6 +52,25 @@ export const config = {
     | "info"
     | "warn"
     | "error",
+
+  // ---------------------------------------------------------------------------
+  // Watch Party (realtime sync)
+  // ---------------------------------------------------------------------------
+
+  /** Length of generated room codes (e.g. 6 → "ABCD12"). */
+  watchPartyCodeLength: intEnv("WATCH_PARTY_CODE_LENGTH", 6),
+  /** How long (ms) an empty room persists before being destroyed. */
+  watchPartyEmptyRoomTtlMs: intEnv("WATCH_PARTY_EMPTY_ROOM_TTL_MS", 5 * 60 * 1000),
+  /** Interval (ms) between empty-room reaper sweeps. */
+  watchPartyReaperIntervalMs: intEnv("WATCH_PARTY_REAPER_INTERVAL_MS", 60_000),
+  /** Interval (ms) between periodic sync broadcasts to each room. */
+  watchPartySyncIntervalMs: intEnv("WATCH_PARTY_SYNC_INTERVAL_MS", 10_000),
+  /** Maximum allowed playback speed multiplier. */
+  watchPartyMaxSpeed: 4,
+  /** Minimum allowed playback speed multiplier. */
+  watchPartyMinSpeed: 0.25,
+  /** Allowed discrete playback speeds. */
+  watchPartyAllowedSpeeds: [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3, 4],
 } as const;
 
 export type AppConfig = typeof config;

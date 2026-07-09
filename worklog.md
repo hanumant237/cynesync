@@ -193,3 +193,48 @@ Verification (all passed):
 Stage Summary:
 - Frontend player successfully connected to the streaming backend. POST /stream called via gateway; backend inspects media and returns direct URL or HLS playlist; player auto-loads with hls.js (gateway-aware loader for segment routing) or native playback. All loading states (preparing/detecting/transcoding/ready) and error states (unreachable/invalid/empty) have polished UI. No console errors, lint clean, TypeScript clean.
 - Did NOT modify backend architecture. Did NOT implement watch-party/chat/voice.
+
+---
+Task ID: 6
+Agent: Z.ai Code (main)
+Task: Implement the Watch Party backend synchronization server (Socket.IO + TypeScript + Express). Host controls playback, participants auto-sync. No frontend/voice/chat/auth/library/deployment.
+
+Work Log:
+- Read PROJECT.md; analyzed existing backend architecture (ESM modules, Logger, config, VideoService, socket placeholder, tsconfig, eslint).
+- Installed socket.io-client (for integration testing).
+- Created types/watchParty.ts: Participant, PlaybackSyncState (position/state/speed/lastUpdatedAt), Room, RoomSnapshot, toRoomSnapshot(), ClientToServerEvents + ServerToClientEvents (typed socket event maps with `watch-party:` namespace), all event payloads (CreateRoom/JoinRoom/HostPlayback/HostSeek/HostChangeSpeed/HostChangeVideo/ParticipantReady/Sync), AckResult, WatchPartyErrorCode union (ROOM_NOT_FOUND/DUPLICATE_ROOM/DUPLICATE_USERNAME/NOT_HOST/NOT_IN_ROOM/ALREADY_IN_ROOM/INVALID_PAYLOAD/INTERNAL_ERROR), WatchPartyError.
+- Added watch-party config to config/index.ts: watchPartyCodeLength (6), watchPartyEmptyRoomTtlMs (5min), watchPartyReaperIntervalMs (60s), watchPartySyncIntervalMs (10s), watchPartyMinSpeed (0.25), watchPartyMaxSpeed (4), watchPartyAllowedSpeeds. Updated .env.example.
+- Built services/RoomManager.ts: room registry (Map<code,Room> + reverse socketToRoom index); createRoom (generates unique 6-char code via nanoid custom alphabet excluding ambiguous 0/O/1/I, creator=host), joinRoom (validates code + username uniqueness), leaveRoom (removes participant, migrates host or destroys empty room), destroyRoom, disposeAll, reapEmptyRooms (interval-based reaper, unref'd), migrateHost (picks oldest participant), RoomOpResult<T> discriminated union.
+- Built services/UserManager.ts: thin lookup layer (getBySocketId, isHost, listParticipants, count) over RoomManager for O(1) socket-driven lookups.
+- Built services/PlaybackSync.ts: latency-compensation core. computeCurrentPosition() anchors to server timestamp (position + (now - lastUpdatedAt)/1000 * speed when playing). applyPlay/applyPause/applySeek/applySpeed/applyVideoChange mutate room.playback + re-anchor to now. buildSyncSnapshot() for joining/re-syncing participants. isValidSpeed() + clampPosition() guards.
+- Built services/SocketManager.ts: typed wrapper around Socket.IO server. broadcastRoomState/broadcastSync/broadcastParticipantJoined/broadcastParticipantDisconnected (room-scoped), sendRoomState/sendSync/sendError (single-socket), joinRoom/leaveRoom (Socket.IO room management).
+- Built services/RoomEvents.ts: orchestration layer wiring all socket events to services. Handlers: create-room, join-room, leave-room, host-play/pause/seek/change-speed/change-video, participant-ready, disconnect. Each handler: validate payload → requireHost guard (for host events) → call service → broadcast via SocketManager → ack. requireHost() checks room exists + socket is host. sendInitialSync() anchors position to now for joiners. handleUnexpected() catch-all never crashes server. handleDisconnect() triggers leaveRoom + broadcasts participant-disconnected with newHostSocketId if migrated.
+- Rewrote socket/index.ts: initWatchParty(io) builds RoomManager + UserManager + PlaybackSync + SocketManager + RoomEvents, calls register(), returns RoomManager for shutdown disposal.
+- Wired into index.ts: initWatchParty(io) on startup, roomManager.disposeAll() on shutdown (before io.close). Bumped version to 0.3.0. Fixed CORS to support "*" wildcard (origin: true) for development.
+- Updated services/index.ts barrel with all watch-party service exports.
+- Created test/watch-party.test.ts: 14-test socket.io-client integration suite (excluded from tsconfig). Created test:watch-party script.
+- Excluded test/ from tsconfig + eslint.
+
+Verification (14/14 tests passed):
+- `bunx tsc --noEmit` → exit 0. `bunx eslint .` → exit 0.
+- Integration test suite (socket.io-client → backend):
+  1. Create room (code=WGB82T, 6 chars) ✓
+  2. Join room (2 participants) ✓
+  3. Sync play (state=playing) ✓
+  4. Sync pause (state=paused, pos=3) ✓
+  5. Sync seek (pos=120) ✓
+  6. Sync change-speed (speed=1.5) ✓
+  7. Sync change-video ✓
+  8. Multiple participants (3rd joins, 3 participants) ✓
+  9. Duplicate username rejected (DUPLICATE_USERNAME) ✓
+  10. Not-host control rejected (NOT_HOST) ✓
+  11. Room not found (ROOM_NOT_FOUND) ✓
+  12. Reconnect (leave + rejoin) ✓
+  13. Host disconnect → host migration (newHostIsP2=true) ✓
+  14. Migrated host can control playback ✓
+- Backend log shows: "Watch-party handlers registered", "Watch-party engine initialized", "Host migrated newHost:Bob" on host disconnect.
+- Graceful shutdown: roomManager.disposeAll() called on SIGTERM before io.close().
+
+Stage Summary:
+- Watch Party synchronization backend complete and fully verified. TypeScript clean, ESLint clean, no broken imports. Socket.IO engine with RoomManager/UserManager/PlaybackSync/SocketManager/RoomEvents services; short shareable room codes (ABCD12 format); host-only playback control (play/pause/seek/speed/video); latency-compensated sync via server timestamps; automatic host migration on disconnect; empty room reaping; structured error handling (never crashes); full logging. 14/14 integration tests pass.
+- Did NOT build any frontend, chat, or voice. Did NOT redesign pages.

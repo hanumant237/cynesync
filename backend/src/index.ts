@@ -1,12 +1,10 @@
 /**
  * CineSync Backend — Entry Point
  *
- * Boots the Express HTTP server, mounts the streaming routes, and wires up
- * graceful shutdown so FFmpeg processes are stopped and temp files removed
- * when the server stops — never leaving anything behind.
- *
- * The Socket.IO realtime layer is kept from the foundation but no handlers
- * are registered in this phase (watch-party/chat are out of scope).
+ * Boots the Express HTTP server, mounts the streaming routes, initializes the
+ * watch-party Socket.IO engine, and wires up graceful shutdown so FFmpeg
+ * processes are stopped, temp files removed, and all rooms disposed when the
+ * server stops — never leaving anything behind.
  */
 
 import express from "express";
@@ -17,6 +15,8 @@ import { Logger } from "./services/Logger.js";
 import { VideoService } from "./services/VideoService.js";
 import { createRootRouter } from "./routes/index.js";
 import { requestLogger, errorHandler, notFoundHandler } from "./middleware/index.js";
+import { initWatchParty } from "./socket/index.js";
+import type { RoomManager } from "./services/RoomManager.js";
 
 const log = new Logger("Server");
 
@@ -27,17 +27,27 @@ const videoService = new VideoService();
 const app = express();
 const httpServer = createServer(app);
 
-// Realtime layer (handlers wired in a future phase).
+// Realtime layer.
+// When CORS_ORIGIN is "*", allow all origins (development); otherwise use the
+// explicit list. Socket.IO expects `origin: true` for wildcard support.
+const corsOrigin =
+  config.corsOrigin.length === 1 && config.corsOrigin[0] === "*"
+    ? true
+    : config.corsOrigin;
 export const io = new SocketIOServer(httpServer, {
-  cors: { origin: config.corsOrigin, methods: ["GET", "POST"] },
+  cors: { origin: corsOrigin, methods: ["GET", "POST"] },
 });
+
+// Initialize the watch-party synchronization engine (registers all socket
+// handlers). Returns the RoomManager so we can dispose rooms on shutdown.
+const roomManager: RoomManager = initWatchParty(io);
 
 app.use(requestLogger);
 app.use(express.json({ limit: "256kb" }));
 
 // Health check — useful for the gateway and orchestration.
 app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "cinesync-backend", version: "0.2.0" });
+  res.json({ ok: true, service: "cinesync-backend", version: "0.3.0" });
 });
 
 // Streaming API.
@@ -65,6 +75,9 @@ async function shutdown(signal: string): Promise<void> {
 
   // Stop accepting new connections.
   httpServer.close(() => log.info("HTTP server closed"));
+
+  // Dispose all watch-party rooms.
+  roomManager.disposeAll();
 
   // Stop FFmpeg processes + remove temp dirs.
   await videoService.cleanupService.disposeAll();
