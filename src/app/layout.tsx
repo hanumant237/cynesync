@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
@@ -18,8 +18,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: `${APP_NAME} — ${APP_TAGLINE}`,
-  description: `${APP_NAME} is a modern personal media streaming platform for videos that you own or are authorized to access.`,
-  keywords: [APP_NAME, "media", "streaming", "video", "watch party", "Next.js", "TypeScript"],
+  description: `${APP_NAME} is a modern personal media streaming platform for videos that you own or are authorized to access. Premium, private, in sync.`,
+  keywords: [APP_NAME, "media", "streaming", "video", "watch party", "library", "Next.js", "TypeScript"],
   authors: [{ name: APP_NAME }],
   icons: {
     icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
@@ -37,13 +37,17 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  themeColor: "#09090b",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="dark" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >

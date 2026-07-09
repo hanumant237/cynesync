@@ -7,9 +7,14 @@
  * constraint of the host environment.
  */
 
-/** Identifier for a navigable view within the application. */
+/**
+ * Identifier for a navigable view within the application.
+ * `player` is reachable via the Play button / quick access rather than the
+ * primary Navbar, so it is a valid destination but not a Navbar entry.
+ */
 export type ViewId =
   | "home"
+  | "library"
   | "player"
   | "watch-party"
   | "settings"

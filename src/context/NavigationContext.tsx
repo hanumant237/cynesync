@@ -25,6 +25,7 @@ import { LAST_VIEW_STORAGE_KEY } from "@/utils/constants";
 /** Set of valid, non-error views that can be requested directly. */
 const VALID_VIEWS: ReadonlySet<ViewId> = new Set<ViewId>([
   "home",
+  "library",
   "player",
   "watch-party",
   "settings",

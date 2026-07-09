@@ -1,13 +1,22 @@
 "use client";
 
 /**
- * CineSync — Home page (placeholder)
+ * CineSync — Home page
  *
- * Displays only the page title in this foundation phase.
+ * Composes the hero, quick access, and features sections. No business logic —
+ * pure presentation built from reusable section components.
  */
 
-import { PageShell } from "@/components/layout/PageShell";
+import { HeroSection } from "@/components/home/HeroSection";
+import { QuickAccessSection } from "@/components/home/QuickAccessSection";
+import { FeaturesSection } from "@/components/home/FeaturesSection";
 
 export function HomePage() {
-  return <PageShell title="Home" />;
+  return (
+    <>
+      <HeroSection />
+      <QuickAccessSection />
+      <FeaturesSection />
+    </>
+  );
 }

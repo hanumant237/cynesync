@@ -11,16 +11,24 @@ export const APP_NAME = "CineSync";
 /** Short tagline used in the footer and metadata. */
 export const APP_TAGLINE = "Your media. Your stream. In sync.";
 
+/** Hero headline shown on the Home page. */
+export const HERO_HEADLINE = "Your Personal Streaming Platform";
+
 /** Semantic application version. Bumped per release. */
 export const APP_VERSION = "0.1.0";
 
 /**
  * Primary navigation items rendered in the Navbar.
+ * `player` is intentionally omitted — it is reached via the Play button and
+ * the Quick Access panel rather than the primary nav.
  * Order here is the order shown in the UI.
  */
-export const NAV_ITEMS: ReadonlyArray<{ id: "home" | "player" | "watch-party" | "settings"; label: string }> = [
+export const NAV_ITEMS: ReadonlyArray<{
+  id: "home" | "library" | "watch-party" | "settings";
+  label: string;
+}> = [
   { id: "home", label: "Home" },
-  { id: "player", label: "Player" },
+  { id: "library", label: "Library" },
   { id: "watch-party", label: "Watch Party" },
   { id: "settings", label: "Settings" },
 ];
