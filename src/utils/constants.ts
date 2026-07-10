@@ -47,5 +47,8 @@ export const API_BASE_URL =
 export const SOCKET_BASE_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? "";
 
+/** Legacy constant retained for compatibility. */
+export const BACKEND_PORT = "4001";
+
 /** LocalStorage key used to persist the last active view. */
 export const LAST_VIEW_STORAGE_KEY = "cinesync:last-view";
