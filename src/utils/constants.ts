@@ -26,7 +26,7 @@ export const LAST_VIEW_STORAGE_KEY = "cinesync:last-view";
 
 /** Base URL for all backend API requests and Socket.IO connections */
 export const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4001";
 
 /** API base URL for HTTP requests */
 export const API_BASE_URL = `${BACKEND_URL}/api`;
@@ -35,4 +35,4 @@ export const API_BASE_URL = `${BACKEND_URL}/api`;
 export const SOCKET_BASE_URL = BACKEND_URL;
 
 /** Backend port (for development / compatibility) */
-export const BACKEND_PORT = 3001;
+export const BACKEND_PORT = 4001;
