@@ -20,8 +20,8 @@ function intEnv(name: string, fallback: number): number {
 export const config = {
   /** Port the Express + Socket.IO server listens on. */
   port: intEnv("PORT", 4001),
-  /** Comma-separated list of allowed CORS origins. */
-  corsOrigin: (process.env.CORS_ORIGIN ?? "http://localhost:3000").split(","),
+  /** Comma-separated list of allowed CORS origins. Defaults to "*" (all) for the streaming API. */
+  corsOrigin: (process.env.CORS_ORIGIN ?? "*").split(","),
   /** Directory containing media the user owns or is authorized to access. */
   mediaRoot: process.env.MEDIA_ROOT ?? "./media",
   /** Node environment. */

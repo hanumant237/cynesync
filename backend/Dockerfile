@@ -14,7 +14,7 @@ COPY . .
 # Build the application
 RUN bun run build
 
-FROM node:18-alpine
+FROM node:20-alpine
 
 # Install FFmpeg
 RUN apk add --no-cache ffmpeg

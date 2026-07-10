@@ -7,6 +7,9 @@
  */
 
 import { URL } from "node:url";
+import { get as httpsGet } from "node:https";
+import { get as httpGet } from "node:http";
+import type { IncomingMessage } from "node:http";
 import { config } from "../config/index.js";
 import { Logger } from "../services/Logger.js";
 
@@ -106,49 +109,131 @@ export interface UrlProbeResult {
   reason?: string;
 }
 
+// ---------------------------------------------------------------------------
+// HTTP probe using node:http / node:https (stable on all platforms)
+// ---------------------------------------------------------------------------
+
+interface ProbeHttpResult {
+  status: number;
+  headers: IncomingMessage["headers"];
+}
+
+/**
+ * Make an HTTP(S) GET request with redirect-following, returning the final
+ * status code and headers. Uses node's core http/https modules instead of the
+ * experimental fetch() to avoid DNS/TLS issues on Alpine (musl libc) with
+ * Node 18's undici-based fetch.
+ */
+function probeHttp(
+  url: string,
+  timeoutMs: number,
+  maxRedirects = 5,
+): Promise<ProbeHttpResult> {
+  return new Promise((resolve, reject) => {
+    let redirects = 0;
+
+    const attempt = (currentUrl: string) => {
+      let parsed: URL;
+      try {
+        parsed = new URL(currentUrl);
+      } catch (err) {
+        reject(new Error(`Invalid redirect URL: ${currentUrl}`));
+        return;
+      }
+
+      const getter = parsed.protocol === "https:" ? httpsGet : httpGet;
+
+      const req = getter(
+        currentUrl,
+        {
+          method: "GET",
+          headers: {
+            Range: "bytes=0-1",
+            "User-Agent": "CineSync-Probe/1.0",
+          },
+        },
+        (res) => {
+          const status = res.statusCode ?? 0;
+
+          // Follow redirects (301, 302, 303, 307, 308)
+          if (
+            [301, 302, 303, 307, 308].includes(status) &&
+            res.headers.location &&
+            redirects < maxRedirects
+          ) {
+            redirects++;
+            res.resume(); // drain redirect response
+            const nextUrl = new URL(res.headers.location, currentUrl).toString();
+            log.debug("Following redirect", { from: currentUrl, to: nextUrl, redirectNum: redirects });
+            attempt(nextUrl);
+            return;
+          }
+
+          // Drain the response body to free memory.
+          res.resume();
+
+          resolve({ status, headers: res.headers });
+        },
+      );
+
+      req.on("error", (err: NodeJS.ErrnoException) => {
+        log.warn("HTTP probe request error", {
+          url: currentUrl,
+          code: err.code,
+          message: err.message,
+        });
+        reject(err);
+      });
+
+      req.setTimeout(timeoutMs, () => {
+        req.destroy(new Error("URL_PROBE_TIMEOUT"));
+      });
+    };
+
+    attempt(url);
+  });
+}
+
 /**
  * Probe a URL with a small GET (range request) to confirm it is reachable and
- * to read its Content-Type. Uses AbortController to enforce a timeout.
+ * to read its Content-Type. Uses node's core http/https modules (not fetch)
+ * for maximum reliability across Node versions and platforms.
  */
 export async function probeUrl(url: string): Promise<UrlProbeResult> {
-  const controller = new AbortController();
-  const timer = setTimeout(
-    () => controller.abort(),
-    config.urlProbeTimeoutMs,
-  );
+  log.info("Probing URL", { url, timeoutMs: config.urlProbeTimeoutMs });
 
   try {
-    const res = await fetch(url, {
-      method: "GET",
-      signal: controller.signal,
-      // Request only a tiny slice — we only need headers + content-type.
-      headers: { Range: "bytes=0-1" },
-      redirect: "follow",
-    });
+    const { status, headers } = await probeHttp(url, config.urlProbeTimeoutMs);
 
-    const contentType = res.headers.get("content-type") ?? undefined;
-    const contentLengthHeader = res.headers.get("content-length") ?? undefined;
+    const contentType = (headers["content-type"] as string) ?? undefined;
+    const contentLengthHeader = (headers["content-length"] as string) ?? undefined;
     const contentLength = contentLengthHeader
       ? Number.parseInt(contentLengthHeader, 10)
       : undefined;
 
     // 200/206 are fine; some servers reject Range and return 200.
-    const reachable = res.status === 200 || res.status === 206;
+    const reachable = status === 200 || status === 206;
     const looksLikeVideo = looksLikeVideoContentType(contentType, url);
 
     if (!reachable) {
+      log.warn("URL probe returned non-success status", {
+        url,
+        status,
+        contentType,
+        looksLikeVideo,
+      });
       return {
         reachable: false,
-        status: res.status,
+        status,
         contentType,
         looksLikeVideo,
         code: "UNREACHABLE_URL",
-        reason: `The URL returned HTTP ${res.status}.`,
+        reason: `The URL returned HTTP ${status}.`,
       };
     }
 
-    log.debug("URL probe ok", {
-      status: res.status,
+    log.info("URL probe succeeded", {
+      status,
       contentType,
       contentLength,
       looksLikeVideo,
@@ -156,23 +241,29 @@ export async function probeUrl(url: string): Promise<UrlProbeResult> {
 
     return {
       reachable: true,
-      status: res.status,
+      status,
       contentType,
       contentLength,
       looksLikeVideo,
     };
   } catch (err) {
-    const isAbort = err instanceof Error && err.name === "AbortError";
+    const message = err instanceof Error ? err.message : String(err);
+    const isTimeout = message === "URL_PROBE_TIMEOUT";
+
+    log.error("URL probe failed", {
+      url,
+      error: message,
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+
     return {
       reachable: false,
       looksLikeVideo: false,
-      code: isAbort ? "URL_TIMEOUT" : "UNREACHABLE_URL",
-      reason: isAbort
+      code: isTimeout ? "URL_TIMEOUT" : "UNREACHABLE_URL",
+      reason: isTimeout
         ? "The URL took too long to respond."
-        : "The URL could not be reached.",
+        : `The URL could not be reached: ${message}`,
     };
-  } finally {
-    clearTimeout(timer);
   }
 }
 

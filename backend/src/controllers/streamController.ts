@@ -2,8 +2,8 @@
  * CineSync Backend — Stream Controller
  *
  * Request handlers for the streaming API. Thin layer: validates input, calls
- * VideoService, and shapes the JSON response. All errors are forwarded to the
- * centralized error handler via next().
+ * VideoService, and shapes the JSON response. All errors are forwarded to
+ * the centralized error handler via next().
  */
 
 import type { NextFunction, Request, Response } from "express";
@@ -16,7 +16,7 @@ const log = new Logger("StreamController");
 
 /**
  * POST /stream
- * Body: { "url": "https://..." }
+ * Body: { "url": "https://..."" }
  *
  * Validates the URL, probes reachability + content-type, inspects with
  * FFprobe, and returns a StreamSession describing how to play the source
@@ -30,10 +30,18 @@ export function createStreamHandler(videoService: VideoService) {
   ): Promise<void> {
     try {
       const rawUrl = req.body?.url;
-      log.info("Stream request", { url: rawUrl });
+      log.info("Stream request received", { url: rawUrl, body: req.body });
 
       // 1. Shape validation.
       const validation = validateUrl(rawUrl);
+      log.info("URL validation result", {
+        ok: validation.ok,
+        code: validation.code,
+        reason: validation.reason,
+        url: validation.url,
+        ext: validation.ext,
+      });
+
       if (!validation.ok) {
         const body: ErrorBody = {
           code: validation.code ?? "INVALID_URL",
@@ -45,6 +53,15 @@ export function createStreamHandler(videoService: VideoService) {
 
       // 2. Reachability + content-type probe.
       const probe = await probeUrl(validation.url!);
+      log.info("URL probe result", {
+        reachable: probe.reachable,
+        status: probe.status,
+        contentType: probe.contentType,
+        looksLikeVideo: probe.looksLikeVideo,
+        code: probe.code,
+        reason: probe.reason,
+      });
+
       if (!probe.reachable) {
         const body: ErrorBody = {
           code: probe.code ?? "UNREACHABLE_URL",
@@ -54,7 +71,12 @@ export function createStreamHandler(videoService: VideoService) {
         res.status(probe.code === "URL_TIMEOUT" ? 504 : 502).json(body);
         return;
       }
+
       if (!probe.looksLikeVideo) {
+        log.warn("URL does not look like video", {
+          contentType: probe.contentType,
+          status: probe.status,
+        });
         const body: ErrorBody = {
           code: "UNSUPPORTED_FORMAT",
           message:
@@ -66,16 +88,27 @@ export function createStreamHandler(videoService: VideoService) {
       }
 
       // 3. Inspect + prepare (direct or HLS transcode).
+      log.info("Calling VideoService.prepareStream", { url: validation.url });
       const session: StreamSession = await videoService.prepareStream(validation.url!);
 
       log.info("Stream ready", {
         id: session.id,
         strategy: session.strategy,
         container: session.media.container,
+        videoCodec: session.media.video?.codecName,
+        audioCodec: session.media.audio?.codecName,
+        resolution: session.media.resolution,
+        hlsPlaylistUrl: session.hlsPlaylistUrl,
       });
 
       res.status(200).json(session);
     } catch (err) {
+      log.error("Stream handler caught exception", {
+        name: err instanceof Error ? err.name : "unknown",
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+
       // VideoServiceError carries its own status; let the handler map it.
       if (err instanceof VideoServiceError) {
         next(err);
@@ -105,8 +138,10 @@ export function createPlaylistHandler(videoService: VideoService) {
     next: NextFunction,
   ): void {
     const { id } = req.params;
+    log.info("Playlist request", { id });
     const playlistPath = videoService.getPlaylistPath(id);
     if (!playlistPath) {
+      log.warn("Playlist not found", { id });
       const body: ErrorBody = {
         code: "SESSION_NOT_FOUND",
         message: "This stream session does not exist or has expired.",
@@ -137,8 +172,10 @@ export function createSegmentHandler(videoService: VideoService) {
     next: NextFunction,
   ): void {
     const { id, name } = req.params;
+    log.debug("Segment request", { id, name });
     const segmentPath = videoService.getSegmentPath(id, name);
     if (!segmentPath) {
+      log.warn("Segment not found", { id, name });
       const body: ErrorBody = {
         code: "SEGMENT_NOT_FOUND",
         message: "This segment does not exist or the session has expired.",

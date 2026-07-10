@@ -76,15 +76,20 @@ function isTypingTarget(): boolean {
 }
 
 /**
- * Adapt a URL for the gateway: append the XTransformPort query param so the
- * request routes to the backend. Also rewrites HLS segment paths — hls.js
- * resolves segment references (e.g. "seg-00000.ts") relative to the playlist
- * URL, yielding an absolute URL like
- * "http://localhost:81/api/stream/<id>/seg-00000.ts", but the backend serves
- * segments at "/api/stream/<id>/segments/<name>". This inserts "segments/".
+ * Adapt a URL for the backend streaming API:
+ *   1. Rewrite HLS segment paths — hls.js resolves segment references
+ *      (e.g. "seg-00000.ts") relative to the playlist URL, yielding a URL
+ *      like "http://host/api/stream/<id>/seg-00000.ts", but the backend
+ *      serves segments at "/api/stream/<id>/segments/<name>". This inserts
+ *      the "segments/" path segment.
+ *   2. For relative URLs (starting with "/"), append the XTransformPort
+ *      query param so the request routes through the Caddy gateway to the
+ *      backend. Absolute URLs (e.g. http://localhost:4001/…) go directly
+ *      to the backend and don't need the gateway param.
  *
- * Applied to both relative (/api/…) and absolute (http://…/api/…) gateway
- * URLs. External URLs (e.g. the Mux test stream) are returned unchanged.
+ * Applied to both relative (/api/…) and absolute (http://…/api/…) URLs that
+ * target the backend streaming API. External URLs (e.g. the Mux test stream)
+ * are returned unchanged.
  */
 function adaptGatewayUrl(rawUrl: string): string {
   try {
@@ -103,9 +108,11 @@ function adaptGatewayUrl(rawUrl: string): string {
       parsed.pathname = `${segmentMatch[1]}/segments/${segmentMatch[2]}`;
     }
 
-    // Append the gateway port (avoid duplicating if already present).
-    if (!parsed.searchParams.has("XTransformPort")) {
-      parsed.searchParams.set("XTransformPort", BACKEND_PORT);
+    // For relative gateway URLs (starting with /), append the gateway port
+    // so Caddy routes the request to the backend. Absolute URLs go directly
+    // to the backend and don't need this.
+    if (rawUrl.startsWith("/") && !parsed.searchParams.has("XTransformPort")) {
+      parsed.searchParams.set("XTransformPort", String(BACKEND_PORT));
     }
 
     return parsed.toString();
@@ -225,15 +232,14 @@ export function useVideoPlayer(): UseVideoPlayerReturn {
               // environments; the main-thread path is the most reliable for a
               // dev/test player and has no practical downside at this scale.
               //
-              // When the source is a relative /api/ path (backend HLS
-              // playlist), use a gateway-aware loader that appends
-              // XTransformPort + rewrites segment paths so every fetch routes
-              // through the gateway to the backend.
-              const isGatewayUrl = url.startsWith("/");
+              // When the source is a backend HLS playlist URL (relative or
+              // absolute, under /api/stream/), use a gateway-aware loader
+              // that rewrites segment paths so every fetch routes correctly.
+              const isBackendUrl = url.includes("/api/stream/");
               const hlsConfig: ConstructorParameters<typeof Hls>[0] = {
                 enableWorker: false,
               };
-              if (isGatewayUrl) {
+              if (isBackendUrl) {
                 hlsConfig.loader = createGatewayLoader(Hls);
               }
               const hls = new Hls(hlsConfig);
